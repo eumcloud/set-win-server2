@@ -4,4 +4,46 @@ Start-Service sshd
 
 Set-Service -Name sshd -StartupType 'Automatic'
 
+
+# 관리자 권한 PowerShell에서 실행
+
+# 새 포트 번호 지정 (원하는 번호로 변경)
+$newPort = 62   ### 변경 부분
+
+# sshd_config 경로
+$configPath = "C:\ProgramData\ssh\sshd_config"
+$backupPath = "$configPath.bak-$(Get-Date -Format yyyyMMdd-HHmmss)"
+
+# 백업 생성
+Copy-Item $configPath $backupPath
+
+# 기존 내용 읽기 및 수정
+(Get-Content $configPath) |
+ForEach-Object {
+    if ($_ -match '^\s*#?\s*Port\s+\d+') {
+        "Port $newPort"   ### 변경 부분
+    } else {
+        $_
+    }
+} | Set-Content $configPath
+
+# Port 라인이 없으면 추가
+if (-not (Select-String -Path $configPath -Pattern "^\s*Port\s+$newPort" -Quiet)) {
+    Add-Content $configPath "`nPort $newPort"
+}
+
+# 방화벽 규칙 추가
+if (-not (Get-NetFirewallRule -DisplayName "OpenSSH-Server-In-TCP-$newPort" -ErrorAction SilentlyContinue)) {
+    New-NetFirewallRule -DisplayName "OpenSSH-Server-In-TCP-$newPort" -Direction Inbound -Action Allow -Protocol TCP -LocalPort $newPort
+}
+
+# sshd 서비스 재시작
+Restart-Service sshd
+
+# 리스닝 상태 확인
+netstat -ano | findstr LISTENING | findstr ":$newPort"
+
+
+
+
 New-NetFirewallRule -DisplayName "SSH (Custom Port)" -Direction Inbound -Protocol TCP -LocalPort 22 -Action Allow
